@@ -93,6 +93,25 @@
     #details { position:relative; width:auto; margin-top:16px; padding:24px 0 0; background:transparent; border-top:1px solid var(--faint); }
     #details .close { top:20px; right:0; }
   }
+  /*Mobile refinements-*/
+#map { touch-action:pan-y; }
+@media (max-width:900px) {
+  aside { display:grid; grid-template-columns:1fr 1fr; gap:16px 20px; padding:20px; }
+  aside nav { display:none; }
+  .brand { order:0; align-self:center; }
+  .updated { order:1; align-self:center; justify-self:end; text-align:right; }
+  .control { order:2; gap:6px; min-width:0; }
+  main { padding:24px 20px 40px; }
+  .stats { gap:24px 20px; padding-bottom:28px; }
+  .stat .value { font-size:1.45rem; }
+  section { padding:28px 0; }
+  .pair { gap:36px; }
+  .chart { height:260px; }
+  #topTable { overflow-x:auto; }
+  .map-meta { margin-top:14px; font-size:.68rem; }
+  .map-meta > div:last-child { display:none; }
+}
+@media (hover:none) { #tooltip { display:none !important; } }
 </style>
 </head>
 <body>
@@ -215,7 +234,10 @@ const timeChart = new CanvasJS.Chart('timeChart', {
 });
 
 /* Map rendering and navigation. */
-const zoom = d3.zoom().scaleExtent([1, 10]).on('zoom', e => { transform = e.transform; });
+const zoom = d3.zoom()
+  .scaleExtent([1, 10])
+  .filter(e => e.type.startsWith('touch') ? e.touches.length > 1 : (!e.ctrlKey || e.type === 'wheel') && !e.button)
+  .on('zoom', e => { transform = e.transform; });
 d3.select(canvas).call(zoom);
 
 function resize() {
