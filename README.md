@@ -2,7 +2,7 @@
 
 A real-time dashboard of every earthquake recorded by the USGS, plotted on a zoomable world map and refreshed every 5 minutes.
 
-**[View the live dashboard →](https://yourusername.github.io/earthquake-visualizer/)**
+**[View the live dashboard →](https://kartik6049.github.io/earthquake_visualizer/)**
 
 ## What it shows
 
