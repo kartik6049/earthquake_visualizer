@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seismic — Live Earthquake Visualizer</title>
+<meta name="description" content="Real-time global earthquake visualization built with D3.js, HTML Canvas, CanvasJS and Google Charts.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+<script src="https://cdn.canvasjs.com/canvasjs.min.js"></script>
+<script src="https://www.gstatic.com/charts/loader.js"></script>
+<style>
+  :root {
+    --bg:#1c1b19; --land:#2e2c28;
+    --cream:#f2ebdd; --muted:#9a9282; --faint:rgba(242,235,221,.08);
+    --accent:#d9622b;
+    --sans:'Plus Jakarta Sans', system-ui, sans-serif;
+    --mono:'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--cream); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+  .layout { display:grid; grid-template-columns:260px minmax(0,1fr); min-height:100vh; }
+
+  /* Sidebar */
+  aside { position:sticky; top:0; height:100vh; padding:48px 32px; display:flex; flex-direction:column; gap:48px; border-right:1px solid var(--faint); }
+  .brand { font-weight:700; font-size:1.2rem; letter-spacing:-.02em; }
+  .brand span { color:var(--accent); }
+  nav { display:flex; flex-direction:column; gap:16px; }
+  nav a { color:var(--muted); text-decoration:none; font-size:.92rem; transition:color .2s; }
+  nav a:hover { color:var(--cream); }
+  .control { display:flex; flex-direction:column; gap:12px; }
+  .mono-label { font-family:var(--mono); font-size:.7rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  #magVal { color:var(--cream); }
+  select { appearance:none; background:transparent; color:var(--cream); border:none; border-bottom:1px solid var(--faint);
+           padding:6px 0; font-family:var(--mono); font-size:.85rem; cursor:pointer; outline:none; }
+  select option { background:var(--bg); }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  .updated { margin-top:auto; font-family:var(--mono); font-size:.7rem; line-height:1.7; color:var(--muted); }
+  .live-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); margin-right:8px; animation:blink 2s infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+
+  /* Main */
+  main { padding:48px 56px 64px; min-width:0; }
+  .stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:40px; padding-bottom:48px; }
+  .stat .value { font-family:var(--mono); font-size:2rem; font-weight:500; letter-spacing:-.03em; margin:12px 0 6px; }
+  .stat .note { font-size:.82rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #strong-v { color:var(--accent); }
+  section { padding:48px 0; border-top:1px solid var(--faint); }
+  .section-label { display:block; margin-bottom:28px; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:64px; }
+  .chart { height:300px; }
+
+  /* Map */
+  #mapBox { position:relative; }
+  #map { display:block; width:100%; cursor:grab; }
+  .map-meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:16px; margin-top:24px; font-family:var(--mono); font-size:.72rem; color:var(--muted); }
+  .map-meta i { display:inline-block; width:8px; height:8px; border-radius:50%; margin:0 6px 0 16px; }
+  #tooltip { position:absolute; pointer-events:none; background:var(--bg); padding:10px 14px; font-size:.8rem; line-height:1.6;
+             display:none; max-width:260px; border-left:2px solid var(--accent); }
+  #details { position:absolute; top:0; right:0; width:300px; background:rgba(28,27,25,.96); padding:28px; display:none; font-size:.85rem; }
+  #details .mag { font-family:var(--mono); font-size:2.4rem; font-weight:500; color:var(--accent); letter-spacing:-.03em; }
+  #details .place { font-weight:600; margin:6px 0 20px; line-height:1.4; }
+  #details .row { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-top:1px solid var(--faint); }
+  #details .row span:first-child { color:var(--muted); }
+  #details .row span:last-child { font-family:var(--mono); font-size:.78rem; text-align:right; }
+  #details .close { position:absolute; top:16px; right:18px; background:none; border:none; color:var(--muted); font-size:1.3rem; cursor:pointer; }
+  #details a { display:inline-block; margin-top:20px; color:var(--accent); text-decoration:none; font-family:var(--mono); font-size:.75rem; }
+
+  /* Google table */
+  .google-visualization-table-table { width:100%; background:transparent !important; font-family:var(--sans) !important; }
+  .g-head, .g-row, .g-odd { background:transparent !important; }
+  .g-headcell { font-family:var(--mono); font-size:.68rem; font-weight:400; letter-spacing:.08em; text-transform:uppercase;
+                color:var(--muted) !important; background:transparent !important; border:none !important; padding:0 12px 14px 0 !important; text-align:left; }
+  .g-hover { background:rgba(217,98,43,.07) !important; }
+  .g-cell { color:var(--cream); border:none !important; border-top:1px solid var(--faint) !important; padding:12px 12px 12px 0 !important; font-size:.85rem; }
+  .google-visualization-table-type-number { font-family:var(--mono); }
+
+  footer { padding-top:48px; border-top:1px solid var(--faint); font-family:var(--mono); font-size:.72rem; line-height:1.9; color:var(--muted); }
+  footer a { color:var(--cream); }
+
+  @media (max-width:900px) {
+    .layout { grid-template-columns:1fr; }
+    aside { position:static; height:auto; padding:28px 24px; gap:28px; border-right:none; border-bottom:1px solid var(--faint); }
+    nav { flex-direction:row; flex-wrap:wrap; gap:20px; }
+    .updated { margin-top:0; }
+    main { padding:32px 24px 48px; }
+    .stats { grid-template-columns:repeat(2,minmax(0,1fr)); gap:32px; }
+    .pair { grid-template-columns:1fr; gap:48px; }
+    #details { position:relative; width:auto; margin-top:16px; padding:24px 0 0; background:transparent; border-top:1px solid var(--faint); }
+    #details .close { top:20px; right:0; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <aside>
+    <div class="brand">Seismic<span>.</span></div>
+    <nav>
+      <a href="#map-section">Map</a>
+      <a href="#distribution">Magnitude &amp; timeline</a>
+      <a href="#depth">Depth &amp; strongest</a>
+    </nav>
+    <div class="control">
+      <label class="mono-label" for="feed">Range</label>
+      <select id="feed">
+        <option value="all_day">Past 24 hours</option>
+        <option value="all_week" selected>Past 7 days</option>
+        <option value="2.5_month">Past 30 days · M2.5+</option>
+        <option value="significant_month">Significant · 30 days</option>
+      </select>
+    </div>
+    <div class="control">
+      <label class="mono-label" for="minMag">Min magnitude &nbsp;<span id="magVal">0.0</span></label>
+      <input type="range" id="minMag" min="0" max="7" step="0.5" value="0">
+    </div>
+    <div class="updated"><span class="live-dot"></span><span id="updated">Loading live USGS data…</span></div>
+  </aside>
+
+  <main>
+    <div class="stats">
+      <div class="stat"><div class="mono-label">Events</div><div class="value" id="total-v">–</div><div class="note" id="total-n"></div></div>
+      <div class="stat"><div class="mono-label">Strongest</div><div class="value" id="strong-v">–</div><div class="note" id="strong-n"></div></div>
+      <div class="stat"><div class="mono-label">Mean magnitude</div><div class="value" id="avg-v">–</div><div class="note" id="avg-n"></div></div>
+      <div class="stat"><div class="mono-label">Deepest</div><div class="value" id="deep-v">–</div><div class="note" id="deep-n"></div></div>
+    </div>
+
+    <section id="map-section">
+      <div id="mapBox">
+        <canvas id="map"></canvas>
+        <div id="tooltip"></div>
+        <div id="details"></div>
+      </div>
+      <div class="map-meta">
+        <div>Depth <i style="background:#f2b179"></i>&lt;70 km <i style="background:#d9622b"></i>70–300 km <i style="background:#a8441a"></i>&gt;300 km</div>
+        <div>Scroll to zoom · Drag to pan · Click for details</div>
+      </div>
+    </section>
+
+    <section id="distribution" class="pair">
+      <div><span class="mono-label section-label">Magnitude distribution</span><div id="magChart" class="chart"></div></div>
+      <div><span class="mono-label section-label">Activity over time</span><div id="timeChart" class="chart"></div></div>
+    </section>
+
+    <section id="depth" class="pair">
+      <div><span class="mono-label section-label">Depth breakdown</span><div id="depthChart" class="chart"></div></div>
+      <div><span class="mono-label section-label">Strongest events</span><div id="topTable"></div></div>
+    </section>
+
+    <footer>
+      Data — <a href="https://earthquake.usgs.gov/earthquakes/feed/" target="_blank" rel="noopener">USGS Earthquake Hazards Program</a>, refreshed every 5 minutes<br>
+      Built with D3.js, HTML Canvas, CanvasJS and Google Charts · Made by Kartik
+    </footer>
+  </main>
+</div>
+
+<script>
+/* Theme colors */
+const C = { bg:'#1c1b19', sphere:'#201f1c', land:'#2e2c28', cream:'#f2ebdd',
+            muted:'#9a9282', faint:'rgba(242,235,221,.08)', accent:'#d9622b' };
+const DEPTH = ['#f2b179', '#d9622b', '#a8441a'];               // Shallow, intermediate, and deep earthquake colors.
+const depthColor = d => d < 70 ? DEPTH[0] : d < 300 ? DEPTH[1] : DEPTH[2];
+
+/* Initialize map and chart state. */
+const canvas  = document.getElementById('map');
+const ctx     = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+const details = document.getElementById('details');
+const feedSel = document.getElementById('feed');
+const magSel  = document.getElementById('minMag');
+
+const dpr = window.devicePixelRatio || 1;
+const projection = d3.geoNaturalEarth1();
+const path = d3.geoPath(projection, ctx);
+const sphere = { type: 'Sphere' };
+const graticule = d3.geoGraticule10();
+const rScale = d3.scaleSqrt().domain([0, 9]).range([1.5, 26]);
+
+let width, height, land, borders;
+let quakes = [], filtered = [], tree = null, hovered = null, selected = null;
+let transform = d3.zoomIdentity;
+let chartsReady = false, depthChart, topTable;
+
+const gReady = new Promise(res => {
+  google.charts.load('current', { packages: ['corechart', 'table'] });
+  google.charts.setOnLoadCallback(res);
+});
+
+const timeAgo = t => {
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+};
+
+/* Configure magnitude and activity charts. */
+const axis = { labelFontFamily:'JetBrains Mono', labelFontSize:11, labelFontColor:C.muted,
+               lineColor:C.faint, tickColor:C.faint, gridColor:C.faint };
+const base = { backgroundColor:'transparent', animationEnabled:true,
+               toolTip:{ backgroundColor:C.bg, fontColor:C.cream, borderThickness:0, cornerRadius:0,
+                         fontFamily:'JetBrains Mono', fontStyle:'normal', fontSize:12 } };
+const magChart = new CanvasJS.Chart('magChart', {
+  ...base,
+  axisX: { ...axis, gridThickness:0 },
+  axisY: { ...axis, lineThickness:0, tickLength:0 },
+  data: [{ type:'column', color:C.accent, dataPoints:[] }]
+});
+const timeChart = new CanvasJS.Chart('timeChart', {
+  ...base,
+  axisX: { ...axis, gridThickness:0, valueFormatString:'DD MMM' },
+  axisY: { ...axis, lineThickness:0, tickLength:0 },
+  data: [{ type:'splineArea', color:C.accent, fillOpacity:.12, lineThickness:2, markerSize:0, dataPoints:[] }]
+});
+
+/* Map rendering and navigation. */
+const zoom = d3.zoom().scaleExtent([1, 10]).on('zoom', e => { transform = e.transform; });
+d3.select(canvas).call(zoom);
+
+function resize() {
+  width  = canvas.parentElement.clientWidth;
+  height = Math.round(width * 0.5);
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  canvas.style.height = height + 'px';
+  projection.fitSize([width, height], sphere);
+  zoom.extent([[0, 0], [width, height]]).translateExtent([[0, 0], [width, height]]);
+  d3.select(canvas).call(zoom.transform, d3.zoomIdentity);
+  projectQuakes();
+  if (chartsReady) updateCharts();
+}
+
+function projectQuakes() {
+  for (const q of quakes) [q.x, q.y] = projection([q.lon, q.lat]);
+  tree = d3.quadtree(filtered, d => d.x, d => d.y);
+}
+
+function draw(t) {
+  if (!land) return;
+  const k = transform.k, now = Date.now();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  ctx.save();
+  ctx.translate(transform.x, transform.y);
+  ctx.scale(k, k);
+
+  ctx.beginPath(); path(sphere); ctx.fillStyle = C.sphere; ctx.fill();
+  ctx.beginPath(); path(graticule); ctx.strokeStyle = 'rgba(242,235,221,.035)'; ctx.lineWidth = .5 / k; ctx.stroke();
+  ctx.beginPath(); path(land); ctx.fillStyle = C.land; ctx.fill();
+  ctx.beginPath(); path(borders); ctx.strokeStyle = C.bg; ctx.lineWidth = .8 / k; ctx.stroke();
+
+  for (const q of filtered) {                       // Events are ordered by magnitude.
+    const r = rScale(Math.max(q.mag, 0)) / Math.sqrt(k);
+    ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, 2 * Math.PI);
+    ctx.globalAlpha = .8; ctx.fillStyle = depthColor(q.depth); ctx.fill();
+    ctx.globalAlpha = 1; ctx.lineWidth = .8 / k; ctx.strokeStyle = C.bg; ctx.stroke();
+
+    if (now - q.time < 3 * 3600e3) {                // Highlight events recorded within the last three hours.
+      const p = (t / 1600) % 1;
+      ctx.beginPath(); ctx.arc(q.x, q.y, r * (1 + p * 2.5), 0, 2 * Math.PI);
+      ctx.strokeStyle = `rgba(242,235,221,${(1 - p) * .7})`; ctx.lineWidth = 1.2 / k; ctx.stroke();
+    }
+  }
+  for (const q of [hovered, selected]) {
+    if (!q) continue;
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, rScale(Math.max(q.mag, 0)) / Math.sqrt(k) + 2 / k, 0, 2 * Math.PI);
+    ctx.strokeStyle = C.cream; ctx.lineWidth = 1.5 / k; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function loop(t) { draw(t); requestAnimationFrame(loop); }
+
+/* Map interaction and event details. */
+function nearest(ev) {
+  const [mx, my] = d3.pointer(ev);
+  const [px, py] = transform.invert([mx, my]);
+  return { mx, my, q: tree ? tree.find(px, py, 14 / transform.k) || null : null };
+}
+
+d3.select(canvas)
+  .on('mousemove', ev => {
+    const { mx, my, q } = nearest(ev);
+    hovered = q;
+    canvas.style.cursor = q ? 'pointer' : 'grab';
+    if (!q) { tooltip.style.display = 'none'; return; }
+    tooltip.innerHTML = `<span style="font-family:var(--mono);color:${C.accent}">M${q.mag.toFixed(1)}</span>&nbsp; ${q.place}<br>
+      <span style="color:${C.muted}">${q.depth.toFixed(0)} km deep · ${timeAgo(q.time)}</span>`;
+    tooltip.style.display = 'block';
+    tooltip.style.left = Math.min(mx + 16, width - 270) + 'px';
+    tooltip.style.top  = Math.min(my + 16, height - 70) + 'px';
+  })
+  .on('mouseleave', () => { hovered = null; tooltip.style.display = 'none'; })
+  .on('click', ev => { selected = nearest(ev).q; showDetails(selected); });
+
+function showDetails(q) {
+  if (!q) { details.style.display = 'none'; return; }
+  const depthType = q.depth < 70 ? 'Shallow' : q.depth < 300 ? 'Intermediate' : 'Deep';
+  details.innerHTML = `
+    <button class="close" aria-label="Close">×</button>
+    <div class="mag">M${q.mag.toFixed(1)}</div>
+    <div class="place">${q.place}</div>
+    <div class="row"><span>When</span><span>${timeAgo(q.time)}</span></div>
+    <div class="row"><span>Time</span><span>${q.time.toLocaleString()}</span></div>
+    <div class="row"><span>Depth</span><span>${q.depth.toFixed(1)} km · ${depthType}</span></div>
+    <div class="row"><span>Coordinates</span><span>${q.lat.toFixed(2)}°, ${q.lon.toFixed(2)}°</span></div>
+    <div class="row"><span>Felt reports</span><span>${q.felt ?? '—'}</span></div>
+    <div class="row"><span>Tsunami alert</span><span>${q.tsunami ? 'Yes' : 'No'}</span></div>
+    <a href="${q.url}" target="_blank" rel="noopener">Full report on USGS ↗</a>`;
+  details.style.display = 'block';
+  details.querySelector('.close').onclick = () => { selected = null; details.style.display = 'none'; };
+}
+
+/* Load geographic and earthquake data. */
+async function loadWorld() {
+  const topo = await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+  land = topojson.feature(topo, topo.objects.land);
+  borders = topojson.mesh(topo, topo.objects.countries, (a, b) => a !== b);
+}
+
+async function loadQuakes() {
+  const data = await d3.json(`https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/${feedSel.value}.geojson`);
+  quakes = data.features
+    .filter(f => f.properties.mag != null)
+    .map(f => {
+      const [lon, lat, depth] = f.geometry.coordinates;
+      const p = f.properties;
+      return { lon, lat, depth, mag: p.mag, place: p.place || 'Unknown location', time: new Date(p.time),
+               url: p.url, felt: p.felt, tsunami: p.tsunami };
+    })
+    .sort((a, b) => b.mag - a.mag);
+  document.getElementById('updated').textContent =
+    `Live · updated ${new Date(data.metadata.generated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  applyFilter();
+}
+
+function applyFilter() {
+  filtered = quakes.filter(q => q.mag >= +magSel.value);
+  projectQuakes();
+  updateStats();
+  updateCharts();
+  if (selected && !filtered.includes(selected)) showDetails(selected = null);
+}
+
+/* Summary statistics. */
+function setStat(id, value, note) {
+  document.getElementById(id + '-v').textContent = value;
+  document.getElementById(id + '-n').textContent = note || '';
+}
+function updateStats() {
+  setStat('total', filtered.length.toLocaleString(), feedSel.selectedOptions[0].text);
+  if (!filtered.length) { ['strong', 'avg', 'deep'].forEach(id => setStat(id, '–')); return; }
+  const top = filtered[0];
+  const deep = d3.greatest(filtered, d => d.depth);
+  setStat('strong', 'M' + top.mag.toFixed(1), top.place);
+  setStat('avg', d3.mean(filtered, d => d.mag).toFixed(2), 'Across all events shown');
+  setStat('deep', deep.depth.toFixed(0) + ' km', deep.place);
+}
+
+/* Update chart data and visualizations. */
+function updateCharts() {
+  magChart.options.data[0].dataPoints = d3.rollups(filtered, v => v.length, d => Math.floor(d.mag))
+    .sort((a, b) => a[0] - b[0])
+    .map(([m, c]) => ({ label: `${m}–${m + 1}`, y: c }));
+  magChart.render();
+
+  const hourly = feedSel.value === 'all_day';
+  const interval = hourly ? d3.timeHour : d3.timeDay;
+  timeChart.options.axisX.valueFormatString = hourly ? 'HH:mm' : 'DD MMM';
+  timeChart.options.data[0].dataPoints = d3.rollups(filtered, v => v.length, d => +interval.floor(d.time))
+    .sort((a, b) => a[0] - b[0])
+    .map(([t, c]) => ({ x: new Date(t), y: c }));
+  timeChart.render();
+
+  if (!chartsReady) return;
+
+  const shallow = filtered.filter(q => q.depth < 70).length;
+  const mid     = filtered.filter(q => q.depth >= 70 && q.depth < 300).length;
+  depthChart.draw(google.visualization.arrayToDataTable([
+    ['Depth', 'Events'], ['Shallow', shallow], ['Intermediate', mid], ['Deep', filtered.length - shallow - mid]
+  ]), {
+    pieHole: .62, backgroundColor: 'transparent', colors: DEPTH, pieSliceBorderColor: C.bg, pieSliceText: 'none',
+    legend: { position: 'labeled', labeledValueText: 'percentage', textStyle: { color: C.cream, fontName: 'Plus Jakarta Sans', fontSize: 13 } },
+    tooltip: { textStyle: { fontName: 'JetBrains Mono', fontSize: 12 } },
+    chartArea: { left: 0, top: 16, width: '100%', height: '85%' }
+  });
+
+  const dt = new google.visualization.DataTable();
+  dt.addColumn('number', 'Mag');
+  dt.addColumn('string', 'Location');
+  dt.addColumn('number', 'Depth km');
+  dt.addColumn('datetime', 'Time');
+  dt.addRows(filtered.slice(0, 10).map(q => [q.mag, q.place, Math.round(q.depth), q.time]));
+  new google.visualization.NumberFormat({ fractionDigits: 1 }).format(dt, 0);
+  new google.visualization.DateFormat({ pattern: 'dd MMM, HH:mm' }).format(dt, 3);
+  topTable.draw(dt, {
+    width: '100%', sortColumn: 0, sortAscending: false,
+    cssClassNames: { headerRow: 'g-head', headerCell: 'g-headcell', tableRow: 'g-row',
+                     oddTableRow: 'g-odd', hoverTableRow: 'g-hover', tableCell: 'g-cell' }
+  });
+}
+
+/* Event handlers and application initialization. */
+magSel.addEventListener('input', () => {
+  document.getElementById('magVal').textContent = (+magSel.value).toFixed(1);
+  applyFilter();
+});
+feedSel.addEventListener('change', () => loadQuakes().catch(showError));
+let resizeTimer;
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 150); });
+
+function showError(e) {
+  document.getElementById('updated').textContent = 'Could not load data: ' + e.message;
+}
+
+(async function init() {
+  try {
+    await document.fonts.ready;
+    await loadWorld();
+    resize();
+    await gReady;
+    depthChart = new google.visualization.PieChart(document.getElementById('depthChart'));
+    topTable   = new google.visualization.Table(document.getElementById('topTable'));
+    chartsReady = true;
+    await loadQuakes();
+    requestAnimationFrame(loop);
+    setInterval(() => loadQuakes().catch(showError), 5 * 60 * 1000);
+  } catch (e) { showError(e); }
+})();
+</script>
+</body>
+</html>
